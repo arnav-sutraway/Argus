@@ -6,7 +6,6 @@ reports/*.pdf
 
 .env
 *.env
-backend/audio_forensics/*.joblib
 backend/reports/*.pdf
 
 node_modules/

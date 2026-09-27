@@ -31,9 +31,9 @@ def test_demo_identity_uses_contents_not_filename(tmp_path, unknown_audio):
 
     other = analyze_audio(str(unknown_audio))
     assert other["source"] == "uploaded_audio"
-    assert other["manipulation_type"] is None
-    assert other["manipulation_assessment"]["status"] == "not_assessed"
-    assert "real or generated" in other["interpretation"]["explanation"]
+    assert other["manipulation_type"] is not None
+    assert other["manipulation_assessment"]["status"] == "heuristic"
+    assert "feature-based heuristic" in other["interpretation"]["explanation"].lower()
     assert len(other["interpretation"]["insights"]) == 4
 
 
@@ -95,6 +95,14 @@ def test_low_score_alone_does_not_announce_unmodified_audio(unknown_audio):
     assert result["classification"] == "real"
     assert result["manipulation_type"] is None
     assert result["manipulation_assessment"]["status"] == "not_assessed"
+
+
+def test_baseline_audio_uses_heuristic_type_estimate_when_no_detector_is_available(unknown_audio):
+    result = analyze_audio(str(unknown_audio))
+    assert result["manipulation_assessment"]["status"] == "heuristic"
+    assert result["manipulation_type"] is not None
+    assert result["manipulation_assessment"]["basis"] == "Signal-heuristic estimate"
+
 
 @pytest.mark.parametrize("labels", [
     ["real", "real", "tts"],

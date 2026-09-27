@@ -119,6 +119,7 @@ function ScanForm({
                     </p>
                 </div>
             )}
+
         </section>
     );
 }

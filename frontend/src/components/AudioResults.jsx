@@ -8,6 +8,7 @@ const rawNumber = (value) => {
         ? number.toExponential(2) : number.toLocaleString(undefined, { maximumFractionDigits: 3 });
 };
 const timeLabel = (value) => Math.floor(value / 60) + ":" + String(Math.floor(value % 60)).padStart(2, "0");
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 const METRIC_HELP = {
     "RMS amplitude": "Typical signal strength after volume normalization, on a 0–1 scale.",
@@ -21,6 +22,42 @@ const METRIC_HELP = {
     "Quiet frame ratio": "The fraction of short windows below 5% of each section's loudest level.",
     "Energy variation": "How much short-window sound levels vary relative to their average.",
     "Spectral flux": "How much the balance of frequencies changes between neighboring windows.",
+};
+
+const buildBriefSummary = (featureSummary = {}) => {
+    const rms = Number(featureSummary.rms ?? 0);
+    const flatness = Number(featureSummary.spectral_flatness ?? 0);
+    const flux = Number(featureSummary.spectral_flux ?? 0);
+    const quietRatio = Number(featureSummary.quiet_frame_ratio ?? 0);
+    const energyVariation = Number(featureSummary.energy_variation ?? 0);
+    const dominant = Number(featureSummary.dominant_frequency ?? 0);
+
+    return [
+        {
+            label: "Signal clarity",
+            value: rms > 0.6 ? "Strong" : rms > 0.25 ? "Balanced" : "Soft",
+            note: rms > 0.6 ? "The recording carries a clear, lively signal with good separation from background noise." : rms > 0.25 ? "The signal is moderate and usable, without extreme spikes or dropouts." : "The recording is quieter and more subtle, so the signal is less forceful.",
+            level: clamp(rms * 100, 12, 96),
+        },
+        {
+            label: "Tone character",
+            value: dominant > 3000 ? "High" : dominant > 800 ? "Mid" : "Low",
+            note: dominant > 3000 ? "The dominant energy sits in a brighter, higher register." : dominant > 800 ? "The sound is centered in the mid-band, which is common for spoken content." : "The tone sits lower in the spectrum, suggesting a darker or less bright sound profile.",
+            level: clamp((dominant / 6000) * 100, 12, 96),
+        },
+        {
+            label: "Timing stability",
+            value: flux > 0.18 ? "Busy" : flux > 0.08 ? "Steady" : "Stable",
+            note: flux > 0.18 ? "There are noticeable frame-to-frame changes, which can indicate more motion or editing-like variation." : flux > 0.08 ? "The sound has a moderate level of change over time, but it is not highly unstable." : "The timing is very stable, with little evidence of abrupt or erratic movement.",
+            level: clamp(flux * 100, 12, 96),
+        },
+        {
+            label: "Texture",
+            value: flatness > 0.4 ? "Noisy" : flatness > 0.2 ? "Mixed" : "Tone-like",
+            note: flatness > 0.4 ? "The spectrum leans more noise-like than tone-like, which can make the sound feel less stable or more textured." : flatness > 0.2 ? "The sound blends harmonic and noise-like traits, which is common in real-world recordings." : "The sound is more tone-like and less noisy, which usually points to a cleaner spectral shape.",
+            level: clamp(flatness * 100, 12, 96),
+        },
+    ];
 };
 
 function SoundIcon({ kind = "sound" }) {
@@ -39,6 +76,7 @@ export default function AudioResults({ result, onSeek }) {
     const demo = result.source === "known_demo";
     const interpretation = result.interpretation;
     const manipulation = result.manipulation_assessment;
+    const aiSummarySource = result.ai_summary_source || "fallback";
     const score = Number.isFinite(Number(result.synthetic_likelihood)) ? Number(result.synthetic_likelihood) : 0;
     const threshold = Number.isFinite(Number(result.threshold)) ? Number(result.threshold) * 100 : 50;
     const flagged = (result.suspicious_segments || []).length;
@@ -153,13 +191,60 @@ export default function AudioResults({ result, onSeek }) {
                 onSeek={onSeek}
             />
 
-            <details className="audio-technical-details insight-panel" data-reveal>
-                <summary><span>Technical details <small>Measurements and what they mean</small></span></summary>
-                <p className="muted">Measured after converting to mono, adjusting volume, and using {(result.metadata?.sample_rate || 0).toLocaleString()} samples per second. These values describe the processed sound, not the original microphone volume.</p>
+            <details className="audio-technical-details insight-panel" data-reveal open>
+                <summary>
+                    <span>
+                        {aiSummarySource === "gemini" ? "AI brief overview" : "Technical summary"}
+                        <small>
+                            {aiSummarySource === "gemini"
+                                ? "Plain-language summary of the recording"
+                                : "Local technical summary of the recording"}
+                        </small>
+                    </span>
+                    <span className={"chip " + (aiSummarySource === "gemini" ? "chip-info" : "chip-muted")}>{aiSummarySource === "gemini" ? "Gemini-powered summary" : "Local fallback summary"}</span>
+                </summary>
+                <p className="muted">Measured after converting to mono, adjusting volume, and sampling at {(result.metadata?.sample_rate || 0).toLocaleString()} Hz. This is an analyst-friendly summary of the processed signal rather than a raw lab dump.</p>
+
+                <div className="audio-briefing-grid">
+                    <div className="audio-briefing-panel">
+                        <h4>What this recording feels like</h4>
+                        <ul className="audio-brief-list">
+                            <li>
+                                <strong>Signal profile:</strong>
+                                <span>{result.feature_summary?.rms > 0.6 ? "The waveform is strong and clearly present throughout the clip." : result.feature_summary?.rms > 0.25 ? "The signal is moderate and consistent, with no extreme bursts or dropouts." : "The track is quieter and softer, so the signal is less forceful than a loud studio capture."}</span>
+                            </li>
+                            <li>
+                                <strong>Frequency profile:</strong>
+                                <span>{result.feature_summary?.dominant_frequency > 3000 ? "The sound is skewed brighter and more upper-band, which often feels sharper and more synthetic in tone." : result.feature_summary?.dominant_frequency > 800 ? "The dominant energy sits in the midrange, which is consistent with typical spoken audio." : "The energy lands lower in frequency, creating a darker or thicker sound profile."}</span>
+                            </li>
+                            <li>
+                                <strong>Timing pattern:</strong>
+                                <span>{result.feature_summary?.spectral_flux > 0.18 ? "Frame-to-frame changes are noticeable, suggesting more motion or inconsistency across the recording." : result.feature_summary?.spectral_flux > 0.08 ? "The timing is fairly even, with a moderate amount of natural movement across the signal." : "The recording is very stable over time, and there are no obvious pacing jumps or irregular changes."}</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div className="audio-briefing-bars">
+                        {(buildBriefSummary(result.feature_summary || {})).map((item) => (
+                            <div key={item.label} className="audio-briefing-bar">
+                                <div className="audio-bar-header">
+                                    <span>{item.label}</span>
+                                    <strong>{item.value}</strong>
+                                </div>
+                                <div className="audio-bar-track">
+                                    <span style={{ width: `${item.level}%` }} />
+                                </div>
+                                <p>{item.note}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 <div className="insight-grid audio-technical-grid">
                     {(result.techniques || []).map((technique) => (
                         <section key={technique.name}>
                             <h4>{technique.name}</h4>
+                            <p className="audio-technique-description">{technique.description}</p>
                             <dl className="audio-metrics">{Object.entries(technique.metrics || {}).map(([label, value]) => (
                                 <div key={label}><dt>{label}<small>{METRIC_HELP[label]}</small></dt><dd>{rawNumber(value)}</dd></div>
                             ))}</dl>

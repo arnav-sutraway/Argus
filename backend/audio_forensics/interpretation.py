@@ -49,6 +49,56 @@ def is_known_demo(file_path):
     return digest.hexdigest() == DEMO_SHA256
 
 
+def infer_heuristic_manipulation_type(records):
+    if not records:
+        return None
+
+    def mean_value(key):
+        values = [float(record.get(key, 0.0) or 0.0) for record in records]
+        return sum(values) / len(values)
+
+    rms = mean_value("rms")
+    flatness = mean_value("spectral_flatness")
+    flux = mean_value("spectral_flux")
+    quiet = mean_value("quiet_frame_ratio")
+    dominant = mean_value("dominant_frequency")
+    zero_crossing = mean_value("zero_crossing_rate")
+    energy = mean_value("energy_variation")
+    mfcc_variation = mean_value("mfcc_std_0")
+
+    scores = {
+        "real": 0.0,
+        "tts": 0.0,
+        "voice_conversion": 0.0,
+        "splicing": 0.0,
+        "audio_editing": 0.0,
+        "fully_synthetic": 0.0,
+    }
+
+    if rms > 0.55 and flatness < 0.35 and quiet < 0.08:
+        scores["real"] += 1.5
+    if dominant > 1500 and flatness < 0.3 and zero_crossing > 0.08:
+        scores["tts"] += 2.0
+    if dominant > 1200 and mfcc_variation > 0.12 and zero_crossing > 0.09:
+        scores["voice_conversion"] += 2.0
+    if flux > 0.14 or quiet > 0.12 or energy > 0.22:
+        scores["splicing"] += 1.5
+        scores["audio_editing"] += 2.5
+    if flatness < 0.18 and dominant > 2500 and zero_crossing < 0.07:
+        scores["fully_synthetic"] += 2.0
+
+    if rms < 0.25 and flatness < 0.5:
+        scores["real"] += 1.0
+    if mfcc_variation < 0.05 and quiet < 0.05:
+        scores["real"] += 0.5
+
+    best_label, best_score = max(scores.items(), key=lambda item: item[1])
+    if best_score <= 0:
+        return None
+
+    return best_label
+
+
 def assess_manipulation(file_path, records, segments, model=None):
     categories = [dict(category) for category in MANIPULATION_CATEGORIES]
     if is_known_demo(file_path):
@@ -60,6 +110,16 @@ def assess_manipulation(file_path, records, segments, model=None):
             "categories": categories, "predicted_types": [],
         }
     if model is None:
+        heuristic_type = infer_heuristic_manipulation_type(records)
+        if heuristic_type:
+            category = CATEGORY_BY_ID[heuristic_type]
+            return {
+                "type": heuristic_type, "label": category["label"],
+                "status": "heuristic", "basis": "Signal-heuristic estimate",
+                "description": category["description"],
+                "explanation": "The signal summary suggests this recording is more consistent with a heuristic class than with a verified label. It is a useful first-pass cue, not a forensic proof.",
+                "categories": categories, "predicted_types": [{"type": heuristic_type, "label": category["label"], "sections": len(segments)}],
+            }
         return {
             "type": None, "label": "Type not established",
             "status": "not_assessed", "basis": "More evidence needed",
@@ -105,6 +165,13 @@ def explain_result(summary, segments, probability, threshold, manipulation, trai
     if known_demo:
         title = "You're listening to generated test audio"
         explanation = "This demo contains computer-made tones, not a person's voice. Its origin is known from the demo file; the review score is only an example of the checker's output."
+    elif manipulation.get("status") == "heuristic":
+        label = manipulation.get("label") or manipulation.get("type") or "the likely manipulation type"
+        title = f"Signal cues suggest {label.lower()}"
+        explanation = (
+            f"The feature-based heuristic identified {label} from the recording's measured signal profile. "
+            "This is a useful first-pass estimate, not a forensic proof."
+        )
     elif trained and (
         (manipulation["type"] == "real" and probability >= threshold)
         or (manipulation["type"] == "fully_synthetic" and probability < threshold)

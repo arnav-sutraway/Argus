@@ -10,14 +10,17 @@ Responsibilities:
 """
 
 import json
+import os
 import queue
 import shutil
 import tempfile
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +33,8 @@ from github import clone_repository, normalize_github_url, summarize_repository
 from orchestrator import SecurityOrchestrator
 from report import generate_pdf_report
 
+BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(BACKEND_DIR / ".env", override=False)
 
 app = FastAPI(
     title="Argus Security Scanner",
@@ -76,6 +81,99 @@ class AnalyzeRequest(BaseModel):
             "for private repositories"
         )
     )
+
+    api_key: str | None = Field(
+        default=None,
+        description=(
+            "Optional Gemini API key for this scan only. "
+            "If omitted, the server environment is used."
+        )
+    )
+
+    gemini_api_key: str | None = Field(
+        default=None,
+        description=(
+            "Optional Gemini API key override for this request. "
+            "This takes precedence over the server environment."
+        )
+    )
+
+    gemini_model: str | None = Field(
+        default=None,
+        description=(
+            "Optional model override for this request, such as "
+            "gemini-2.5-flash or gemini-2.5-flash-lite"
+        )
+    )
+
+
+@contextmanager
+def runtime_gemini_settings(request):
+    """
+    Temporarily set the Gemini API key and model for a single scan and then
+    restore the process environment to its previous state.
+    """
+
+    runtime_api_key = (request.gemini_api_key or request.api_key or "").strip()
+    runtime_model = (request.gemini_model or "").strip()
+    previous_values = {}
+
+    try:
+        if runtime_api_key:
+            import gemini_base
+            import gemini_client
+
+            previous_values["GEMINI_API_KEY"] = os.environ.get("GEMINI_API_KEY")
+            previous_values["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_API_KEY")
+
+            os.environ["GEMINI_API_KEY"] = runtime_api_key
+            os.environ["GOOGLE_API_KEY"] = runtime_api_key
+
+            gemini_base.GEMINI_MODEL = getattr(gemini_base, "GEMINI_MODEL", "gemini-2.5-flash")
+            gemini_client.DEFAULT_MODELS = [
+                os.getenv("GEMINI_MODEL", "").strip() or "gemini-2.5-flash",
+                "gemini-2.5-flash",
+            ]
+
+            if hasattr(gemini_client.get_client, "cache_clear"):
+                gemini_client.get_client.cache_clear()
+            gemini_base._client = None
+
+        if runtime_model:
+            import gemini_base
+            import gemini_client
+
+            previous_values["GEMINI_MODEL"] = os.environ.get("GEMINI_MODEL")
+            os.environ["GEMINI_MODEL"] = runtime_model
+            gemini_base.GEMINI_MODEL = runtime_model
+            gemini_client.DEFAULT_MODELS = [
+                runtime_model,
+                "gemini-2.5-flash",
+            ]
+
+        yield
+    finally:
+        for key, value in previous_values.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+        if "GEMINI_MODEL" in previous_values:
+            import gemini_base
+            import gemini_client
+            gemini_base.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            gemini_client.DEFAULT_MODELS = [
+                os.getenv("GEMINI_MODEL", "").strip() or "gemini-2.5-flash",
+                "gemini-2.5-flash",
+            ]
+
+        if runtime_api_key:
+            import gemini_base
+            import gemini_client
+            if hasattr(gemini_client.get_client, "cache_clear"):
+                gemini_client.get_client.cache_clear()
+            gemini_base._client = None
 
 
 def serialize_findings(findings):
@@ -218,13 +316,14 @@ def execute_scan(request, scan_id, temporary_directory, on_progress):
         github_token=request.github_token
     )
 
-    analysis_result = (
-        security_orchestrator.analyze_repository(
-            repository_path=repository_path,
-            scan_profile=request.scan_profile,
-            on_progress=on_progress
+    with runtime_gemini_settings(request):
+        analysis_result = (
+            security_orchestrator.analyze_repository(
+                repository_path=repository_path,
+                scan_profile=request.scan_profile,
+                on_progress=on_progress
+            )
         )
-    )
 
     findings = analysis_result.get(
         "findings",

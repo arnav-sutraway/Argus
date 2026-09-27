@@ -127,7 +127,7 @@ export default function AudioResults({ result, onSeek }) {
                 )}
                 {manipulation?.categories && (
                     <details className="audio-type-guide">
-                        <summary>What each manipulation type means <span>6 categories</span></summary>
+                        <summary>What each manipulation type means <span>{manipulation?.categories?.length || 0} categories</span></summary>
                         <p className="muted">These definitions can overlap. TTS describes how speech is made; fully synthetic describes how much is generated. This guide does not mean each type was detected.</p>
                         <div className="audio-category-grid">
                             {manipulation.categories.map((category, index) => (

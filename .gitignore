@@ -8,4 +8,6 @@ reports/*.pdf
 *.env
 backend/reports/*.pdf
 
+.venv/
+.tools/
 node_modules/

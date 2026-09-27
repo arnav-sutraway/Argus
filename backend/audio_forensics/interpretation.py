@@ -14,14 +14,13 @@ MANIPULATION_CATEGORIES = [
      "description": "Speech is generated or transformed to sound like another speaker."},
     {"id": "splicing", "label": "Splicing / partial synthesis",
      "description": "Real audio is mixed with inserted or replaced sections, which may be generated."},
-    {"id": "audio_editing", "label": "Audio editing",
-     "description": "Audio is cut, combined, sped up, slowed down, or changed in pitch."},
+    {"id": "audio_editing", "label": "Audio Editing / Real",
+     "description": "This category covers recordings that are either unmodified and natural or have been cut, combined, sped up, slowed down, or pitch-adjusted. In practice, audio editing and real/unmodified conditions overlap when the signal remains authentic enough to pass as a real recording, so the distinction depends on the measured waveform rather than the filename or speaker identity."},
     {"id": "fully_synthetic", "label": "Fully synthetic speech",
      "description": "The whole spoken recording is generated rather than captured from a real speaker."},
-    {"id": "real", "label": "Real / unmodified",
-     "description": "A recording of a real speaker with no relevant alteration found, using the dataset's definition."},
 ]
 CATEGORY_BY_ID = {category["id"]: category for category in MANIPULATION_CATEGORIES}
+CATEGORY_BY_ID["real"] = CATEGORY_BY_ID["audio_editing"]
 ALIASES = {
     "tts": "tts", "text_to_speech": "tts", "text_to_speech_tts": "tts",
     "voice_cloning": "voice_conversion", "voice_conversion": "voice_conversion",

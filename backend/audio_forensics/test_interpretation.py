@@ -27,7 +27,8 @@ def test_demo_identity_uses_contents_not_filename(tmp_path, unknown_audio):
     assert demo["manipulation_type"] == "generated_test_audio"
     assert demo["manipulation_assessment"]["status"] == "known_source"
     assert "not a person's voice" in demo["interpretation"]["explanation"]
-    assert len(demo["manipulation_assessment"]["categories"]) == 6
+    assert len(demo["manipulation_assessment"]["categories"]) == 5
+    assert sum(1 for category in demo["manipulation_assessment"]["categories"] if category["label"] == "Audio Editing / Real") == 1
 
     other = analyze_audio(str(unknown_audio))
     assert other["source"] == "uploaded_audio"
@@ -149,3 +150,8 @@ def test_type_detector_without_synthetic_model_is_explained(tmp_path):
     assert result["manipulation_type"] == "voice_conversion"
     assert "type detector" in result["interpretation"]["headline"].lower()
     assert "voice conversion" in result["interpretation"]["explanation"].lower()
+
+
+def test_audio_editing_and_real_share_one_combined_category_definition():
+    labels = [category["label"] for category in assess_manipulation(str(SAMPLE), [{}] * 3, [{} for _ in range(3)])["categories"]]
+    assert labels.count("Audio Editing / Real") == 1

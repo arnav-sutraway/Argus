@@ -69,7 +69,7 @@ The app runs locally by default. It has no database, user login, or production d
 
 ## Security agents and rules
 
-Eight specialized agents are registered. The router runs only agents matching detected signals; agents can be skipped when no relevant signals are present.
+9 specialized agents are registered. The router runs only agents matching detected signals; agents can be skipped when no relevant signals are present.
 
 | Agent | Review focus |
 | --- | --- |
